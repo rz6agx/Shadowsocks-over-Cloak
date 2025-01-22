@@ -1,61 +1,60 @@
 #!/bin/bash
 
-# Обновляем систему
+# Update the system
 apt-get update
 apt-get upgrade -y
 
-# Устанавливаем необходимые пакеты
+# Install necessary packages
 apt-get install -y curl wget libssl-dev jq
 
-# Устанавливаем ShadowSocks из официального репозитория
+# Install ShadowSocks from the official repository
 apt-get install -y shadowsocks-libev
 
-# Определяем последнюю версию Cloak
+# Determine the latest version of Cloak
 CLOAK_VERSION=$(curl -s https://api.github.com/repos/cbeuw/Cloak/releases/latest | jq -r .tag_name | sed 's/v//')
 if [ -z "$CLOAK_VERSION" ]; then
-  echo "Не удалось определить последнюю версию Cloak. Использую версию 2.10.0."
+  echo "Unable to determine the latest version of Cloak. Using version 2.10.0."
   CLOAK_VERSION="2.10.0"
 fi
 
-# Загружаем файлы Cloak
+# Download Cloak files
 wget -q https://github.com/cbeuw/Cloak/releases/download/v${CLOAK_VERSION}/ck-server-linux-amd64-v${CLOAK_VERSION} -O /usr/local/bin/ck-server
-wget -q https://github.com/cbeuw/Cloak/releases/download/v${CLOAK_VERSION}/ck-client-linux-amd64-v${CLOAK_VERSION} -O /usr/local/bin/ck-client
 
-# Проверяем успешность скачивания файлов
-if [ ! -f /usr/local/bin/ck-server ] || [ ! -f /usr/local/bin/ck-client ]; then
-    echo "Ошибка при загрузке файлов Cloak."
+# Check if the download was successful
+if [ ! -f /usr/local/bin/ck-server ]; then
+    echo "Error downloading Cloak files."
     exit 1
 fi
 
-# Устанавливаем Cloak
-chmod +x /usr/local/bin/ck-server /usr/local/bin/ck-client
+# Install Cloak
+chmod +x /usr/local/bin/ck-server
 
-# Генерация ключей для Cloak
+# Generate keys for Cloak
 KEY_OUTPUT=$(/usr/local/bin/ck-server -k)
 
-# Извлечение PublicKey и PrivateKey
+# Extract PublicKey and PrivateKey
 PUBLIC_KEY=$(echo "$KEY_OUTPUT" | awk -F',' '{print $1}')
 PRIVATE_KEY=$(echo "$KEY_OUTPUT" | awk -F',' '{print $2}')
 
-# Проверка, что ключи успешно сгенерированы
+# Check if keys were generated successfully
 if [ -z "$PUBLIC_KEY" ] || [ -z "$PRIVATE_KEY" ]; then
-  echo "Ошибка при генерации ключей для Cloak."
+  echo "Error generating keys for Cloak."
   exit 1
 fi
 
-# Генерация AdminUID
+# Generate AdminUID
 ADMIN_UID=$(/usr/local/bin/ck-server -u)
 
-# Проверка, что AdminUID успешно сгенерирован
+# Check if AdminUID was generated successfully
 if [ -z "$ADMIN_UID" ]; then
-  echo "Ошибка при генерации AdminUID для Cloak."
+  echo "Error generating AdminUID for Cloak."
   exit 1
 fi
 
-# Генерация пароля для ShadowSocks
+# Generate password for ShadowSocks
 SHADOWSOCKS_PASSWORD=$(head -c 16 /dev/urandom | base64)
 
-# Создаем конфигурационный файл для Cloak
+# Create configuration file for Cloak
 mkdir -p /etc/cloak
 cat <<EOF > /etc/cloak/config.json
 {
@@ -71,13 +70,13 @@ cat <<EOF > /etc/cloak/config.json
 }
 EOF
 
-# Проверяем успешность записи
+# Check if the configuration file was created successfully
 if [ $? -ne 0 ]; then
-  echo "Ошибка при создании конфигурационного файла для Cloak."
+  echo "Error creating the Cloak configuration file."
   exit 1
 fi
 
-# Создаем сервис для Cloak
+# Create a service for Cloak
 cat <<EOF > /etc/systemd/system/cloak.service
 [Unit]
 Description=Cloak Server
@@ -91,17 +90,18 @@ Restart=always
 WantedBy=multi-user.target
 EOF
 
-# Запускаем и включаем сервис Cloak
+# Reload systemd and enable the Cloak service
 systemctl daemon-reload
 systemctl enable --now cloak
 
+# Check if the Cloak service is running
 if ! systemctl is-active --quiet cloak; then
-  echo "Ошибка: сервис Cloak не запущен. Проверьте логи:"
+  echo "Error: Cloak service is not running. Check the logs:"
   journalctl -u cloak.service
   exit 1
 fi
 
-# Настройка ShadowSocks
+# Configure ShadowSocks
 cat <<EOF > /etc/shadowsocks-libev/config.json
 {
     "server":"0.0.0.0",
@@ -113,35 +113,37 @@ cat <<EOF > /etc/shadowsocks-libev/config.json
 }
 EOF
 
-# Запускаем и включаем сервис ShadowSocks
+# Restart and enable the ShadowSocks service
 systemctl restart shadowsocks-libev
 systemctl enable shadowsocks-libev
 
+# Check if the ShadowSocks service is running
 if ! systemctl is-active --quiet shadowsocks-libev; then
-  echo "Ошибка: сервис ShadowSocks не запущен."
+  echo "Error: ShadowSocks service is not running."
   exit 1
 fi
 
-# Получаем внешний IP-адрес сервера
+# Get the external IP address of the server
 SERVER_IP=$(curl -s --max-time 10 https://api.ipify.org)
 if [ -z "$SERVER_IP" ]; then
-  echo "Не удалось автоматически определить внешний IP-адрес сервера."
-  read -p "Введите внешний IP-адрес сервера вручную: " SERVER_IP
+  echo "Unable to automatically determine the external IP address of the server."
+  read -p "Enter the external IP address of the server manually: " SERVER_IP
 fi
 
-# Кодируем параметры ShadowSocks в base64
+# Encode the ShadowSocks parameters in base64
 SHADOWSOCKS_BASE64=$(echo -n "aes-256-gcm:$SHADOWSOCKS_PASSWORD" | base64)
 
-# Формируем параметры плагина Cloak
+# Form the Cloak plugin parameters
 CLOAK_PLUGIN="ck-client;UID=$ADMIN_UID;ProxyMethod=shadowsocks;PublicKey=$PUBLIC_KEY;EncryptionMethod=plain;ServerName=www.bing.com"
 CLOAK_PLUGIN_URLENCODED=$(echo -n "$CLOAK_PLUGIN" | jq -sRr @uri)
 
-# Формируем ссылку для клиентов
+# Form the client link
 CLIENT_LINK="ss://$SHADOWSOCKS_BASE64@$SERVER_IP:443?plugin=$CLOAK_PLUGIN_URLENCODED"
 
-echo "Установка завершена!"
+# Summary
+echo "Installation completed!"
 echo "AdminUID: $ADMIN_UID"
 echo "PrivateKey: $PRIVATE_KEY"
 echo "PublicKey: $PUBLIC_KEY"
 echo "ShadowSocks Password: $SHADOWSOCKS_PASSWORD"
-echo "Ссылка для клиентов: $CLIENT_LINK"
+echo "Client link: $CLIENT_LINK"
