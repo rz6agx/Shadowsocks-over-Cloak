@@ -24,7 +24,7 @@ Upon successful completion, the script outputs the following information to the 
 To use the script, run the following command:
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/rz6agx/Shadowsocks-over-Cloak/main/install_shadowsocks_cloak.sh)
+bash <(curl -sL https://raw.githubusercontent.com/rz6agx/Shadowsocks-over-Cloak/refs/heads/main/Cloak2-Installer.sh)
 ```
 
 After running, the script will automatically install and configure Shadowsocks with the Cloak plugin. Follow the on-screen instructions to complete the setup.
